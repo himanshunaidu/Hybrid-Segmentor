@@ -4,12 +4,12 @@ import os
 ### train on total dataset
 NUM_EPOCHS = 1000
 DATASET_SIZE = {'train' : 9600, 'val' : 1200, 'test' : 1200}
-dataset = os.path.join('../', 'split_dataset_final/')
+dataset = os.path.join('../', 'data/', 'split_dataset_final/')
 
 ### train on sample dataset
 # NUM_EPOCHS = 1
 # DATASET_SIZE = {'train' : 360, 'val' : 120, 'test' : 120}
-# dataset = os.path.join('../', 'sample_dataset/') # or split_dataset_final
+# dataset = os.path.join('../', 'data/', 'sample_dataset/') # or split_dataset_final
 
 # Hyperparameters etc.
 LEARNING_RATE = 1e-4
