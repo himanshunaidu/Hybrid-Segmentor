@@ -1,0 +1,5 @@
+*__pycache__/
+*.ckpt
+
+*RECALL_outputs/
+*split_dataset_final/

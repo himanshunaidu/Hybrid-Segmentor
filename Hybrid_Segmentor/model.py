@@ -16,7 +16,9 @@ from metric import DiceBCELoss, DiceLoss
 import torchmetrics
 from torchmetrics.classification \
     import BinaryJaccardIndex, BinaryRecall, BinaryAccuracy, \
-        BinaryPrecision, BinaryF1Score, Dice
+        BinaryPrecision, BinaryF1Score
+from torchmetrics.segmentation \
+    import DiceScore
 import numpy as np
 
 
@@ -221,7 +223,7 @@ class HybridSegmentor(pl.LightningModule):
         
         # Overlapped area metrics (Ignore Backgrounds)
         self.jaccard_ind = BinaryJaccardIndex()
-        self.dice = Dice()
+        self.dice = DiceScore(num_classes=2)
 
         # LR
         self.lr = learning_rate

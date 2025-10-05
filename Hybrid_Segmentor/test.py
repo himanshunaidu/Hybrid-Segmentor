@@ -24,7 +24,8 @@ def main():
 
     print('Loading Model')
 
-    ck_file_path = r'/trinity/home/jmohgoo/data/junegoo/model/v7_resnet/checkpoints/v7_RECALL_final/best.ckpt'
+    # ck_file_path = r'/trinity/home/jmohgoo/data/junegoo/model/v7_resnet/checkpoints/v7_RECALL_final/best.ckpt'
+    ck_file_path = r'/home/hnaidu36/Desktop/SurfaceIntegrity/Hybrid-Segmentor/hybrid_segmentor_BCE_2.ckpt'
     checkpoint = torch.load(ck_file_path)
     model.load_state_dict(checkpoint['state_dict'])
     mul_outputs = True
