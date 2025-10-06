@@ -33,49 +33,78 @@ DATASET_CSV_COLUMNS = [
     'magnetic_heading', 'true_heading', 'heading_accuracy'
 ]
 
+class Frame:
+    def __init__(self, color_image, depth_image, mask_image, intrinsics, pose_matrix):
+        self.color_image = color_image
+        self.depth_image = depth_image
+        self.mask_image = mask_image
+        self.intrinsics = intrinsics
+        self.pose_matrix = pose_matrix
+
 def get_rgb(data: pd.Series, dataset_path: str, *, 
             width: int = -1, height: int = -1, rotation_code: int = -1) -> np.ndarray:
-    """Extracts the RGB image from a DataFrame row."""
-    rgb_path = os.path.join(dataset_path, data['rgb_frame_path'])
+    rgb_sub_path = data['rgb_frame_path']
+    rgb_sub_path = rgb_sub_path[1:] if rgb_sub_path[0] == '/' else rgb_sub_path
+    rgb_path = os.path.join(dataset_path, rgb_sub_path)
     if not os.path.exists(rgb_path):
         raise FileNotFoundError(f"RGB file not found: {rgb_path}")
     rgb_image = Image.open(rgb_path).convert('RGBA')  # Ensure the image has an alpha channel
     rgb_image = np.array(rgb_image)
     if width == -1 or height == -1:
         height, width = rgb_image.shape[:2]
+    # rgb_image = cv2.resize(rgb_image, (width, height), interpolation=cv2.INTER_LANCZOS4)
     if rotation_code != -1:
         rgb_image = cv2.rotate(rgb_image, rotation_code)
-    rgb_image = cv2.resize(rgb_image, (width, height), interpolation=cv2.INTER_LANCZOS4)
     return rgb_image
 
+def get_mask(data: pd.Series, dataset_path: str, *,
+            width: int = -1, height: int = -1, rotation_code: int = -1) -> np.ndarray:
+    mask_sub_path = data['annotation_frame_path']
+    mask_sub_path = mask_sub_path[1:] if mask_sub_path[0] == '/' else mask_sub_path
+    mask_path = os.path.join(dataset_path, mask_sub_path)
+    if not os.path.exists(mask_path):
+        raise FileNotFoundError(f"Mask file not found: {mask_path}")
+    mask_image = Image.open(mask_path).convert('L')  # Convert to grayscale
+    mask_image = np.array(mask_image)
+    if width == -1 or height == -1:
+        height, width = mask_image.shape[:2]
+    # mask_image = cv2.resize(mask_image, (width, height), interpolation=cv2.INTER_LANCZOS4)
+    if rotation_code != -1:
+        mask_image = cv2.rotate(mask_image, rotation_code)
+    return mask_image
+
 def get_depth(data: pd.Series, dataset_path: str, *,
-              width: int, height: int, rotation_code: int = -1) -> np.ndarray:
+              width: int = -1, height: int = -1, rotation_code: int = -1) -> np.ndarray:
     """Extracts the depth image from a DataFrame row."""
-    depth_path = os.path.join(dataset_path, data['depth_frame_path'])
+    depth_sub_path = data['depth_frame_path']
+    depth_sub_path = depth_sub_path[1:] if depth_sub_path[0] == '/' else depth_sub_path
+    depth_path = os.path.join(dataset_path, depth_sub_path)
     if not os.path.exists(depth_path):
         raise FileNotFoundError(f"Depth file not found: {depth_path}")
     depth_image = Image.open(depth_path).convert('F')  # Convert to float format
     depth_image = np.array(depth_image)
     if width == -1 or height == -1:
         height, width = depth_image.shape[:2]
+    depth_image = cv2.resize(depth_image, (width, height), interpolation=cv2.INTER_LANCZOS4)
     if rotation_code != -1:
         depth_image = cv2.rotate(depth_image, rotation_code)
-    depth_image = cv2.resize(depth_image, (width, height), interpolation=cv2.INTER_LANCZOS4)
     return depth_image
 
 def get_depth_confidence(data: pd.Series, dataset_path: str, *,
-                         width: int, height: int, rotation_code: int = -1) -> np.ndarray:
+                         width: int = -1, height: int = -1, rotation_code: int = -1) -> np.ndarray:
     """Extracts the depth confidence image from a DataFrame row."""
-    conf_path = os.path.join(dataset_path, data['depth_confidence_frame_path'])
+    conf_sub_path = data['depth_confidence_frame_path']
+    conf_sub_path = conf_sub_path[1:] if conf_sub_path[0] == '/' else conf_sub_path
+    conf_path = os.path.join(dataset_path, conf_sub_path)
     if not os.path.exists(conf_path):
         raise FileNotFoundError(f"Depth confidence file not found: {conf_path}")
     conf_image = Image.open(conf_path).convert('L')  # Convert to grayscale
     conf_image = np.array(conf_image)
     if width == -1 or height == -1:
         height, width = conf_image.shape[:2]
+    conf_image = cv2.resize(conf_image, (width, height), interpolation=cv2.INTER_LANCZOS4)
     if rotation_code != -1:
         conf_image = cv2.rotate(conf_image, rotation_code)
-    conf_image = cv2.resize(conf_image, (width, height), interpolation=cv2.INTER_LANCZOS4)
     return conf_image
 
 def get_intrinsics(data: pd.Series, scale_x = 1.0, scale_y = 1.0) -> np.ndarray:
@@ -91,7 +120,7 @@ def get_intrinsics(data: pd.Series, scale_x = 1.0, scale_y = 1.0) -> np.ndarray:
     return intrinsics
 
 def get_pose_matrix(data: pd.Series) -> np.ndarray:
-    """Constructs the pose matrix from odometry data."""
+    """Constructs the pose matrix from odometry data. This is the camera-to-world transformation."""
     translation = np.array([data['odometry_x'], data['odometry_y'], data['odometry_z']])
     rotation = R.from_quat([
         data['odometry_qx'], data['odometry_qy'], data['odometry_qz'], data['odometry_qw']
@@ -100,5 +129,5 @@ def get_pose_matrix(data: pd.Series) -> np.ndarray:
     pose_matrix = np.eye(4)
     pose_matrix[:3, :3] = rotation
     pose_matrix[:3, 3] = translation
-    pose_matrix = np.linalg.inv(pose_matrix)
+    # pose_matrix = np.linalg.inv(pose_matrix)
     return pose_matrix
