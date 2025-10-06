@@ -130,7 +130,7 @@ def _warp_image(image, intrinsics, T_wc, origin, normal, W_m, H_m, s=0.01, *,
     
     warped_image = cv2.warpPerspective(image, H_bi, (W_px, H_px), flags=cv2.INTER_LINEAR,
                                         borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
-    return warped_image, (u_w, v_w), (W_px, H_px)
+    return warped_image, (u_w, v_w), (W_px, H_px), H_bi
 
 def warp_image_to_birds_eye_view(image, points, intrinsics, T_wc, plane_eq, s=0.01):
     """
@@ -165,9 +165,9 @@ def warp_image_to_birds_eye_view(image, points, intrinsics, T_wc, plane_eq, s=0.
     W_m += 2 * padding
     H_m += 2 * padding
     
-    warped_image, (u_w, v_w), (W_px, H_px) = _warp_image(
+    warped_image, (u_w, v_w), (W_px, H_px), H_bi = _warp_image(
         image, intrinsics, T_wc, origin, normal, W_m, H_m, s,
         s_x=s, s_y=-s, cx_p=min_u-padding, cy_p=max_v+padding
     )
     
-    return warped_image
+    return warped_image, H_bi

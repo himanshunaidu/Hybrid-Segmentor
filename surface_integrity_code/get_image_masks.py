@@ -66,6 +66,18 @@ def save_3d_points_to_ply(points_3d, colors_3d, filename):
     o3d.io.write_point_cloud(filename, pcd)
     print(f"Saved {len(points_3d)} points to {filename}")
 
+def postprocess_contour_mask(contour_mask, depth_image):
+    """
+    Post-process the contour mask to:
+    a) Remove borders through erosion
+    b) Remove points with depth > DEPTH_THRESHOLD
+    """
+    kernel = np.ones((5,5), np.uint8)
+    eroded_mask = cv2.erode(contour_mask, kernel, iterations=1)
+    depth_mask = (depth_image > 0) & (depth_image < DEPTH_THRESHOLD)
+    final_mask = eroded_mask & depth_mask.astype(np.uint8)
+    return final_mask    
+
 def divide_image(image, patch_size=(256, 256)):
     """
     Divides the input image into smaller patches of given size.
@@ -94,19 +106,51 @@ def divide_image(image, patch_size=(256, 256)):
             patches.append(patch)
     return patches
 
-def process_patch(patch, model):
-    patch_rgb = cv2.cvtColor(patch, cv2.COLOR_BGR2RGB)
+def process_patch(patch, model) -> tuple[np.ndarray, np.ndarray]:
+    patch_actual_size = patch.shape[:2]
+    patch_resized = patch
+    if patch_actual_size != (256, 256):
+        patch_resized = cv2.resize(patch, (256, 256), interpolation=cv2.INTER_LANCZOS4)
+    patch_rgb = cv2.cvtColor(patch_resized, cv2.COLOR_BGR2RGB)
     patch_tensor = torch.from_numpy(patch_rgb).float().permute(2, 0, 1) / 255.0
     pred_mask = predict(model, patch_tensor)  # (256, 256)
-    pred_mask_np = (pred_mask.numpy() * 255).astype(np.uint8)
-    # Color the predicted mask in red
+    pred_mask = cv2.resize(pred_mask.numpy(), (patch_actual_size[1], patch_actual_size[0]), interpolation=cv2.INTER_NEAREST)
+    # Remove predictions for alpha = 0 areas
+    alpha_channel = patch[:, :, 3] if patch.shape[2] == 4 else np.ones(patch_actual_size, dtype=np.uint8) * 255
+    pred_mask = pred_mask * (alpha_channel > 0).astype(np.uint8)
+    # Convert pred_mask to a 3-channel image
+    pred_mask_np = (pred_mask * 255).astype(np.uint8)
     pred_mask_color = cv2.cvtColor(pred_mask_np, cv2.COLOR_GRAY2BGRA)
     pred_mask_color[:, :, 1] = 0  # Zero out G channel
     pred_mask_color[:, :, 0] = 0  # Zero out B channel
-    # pred_mask_color[:, :, 3] = pred_mask_np  # Use the mask as alpha channel
     # Add pred_mask_color on top of the original patch
     processed_patch = cv2.addWeighted(patch.astype(np.uint8), 1.0, pred_mask_color.astype(np.uint8), 1.0, 0)
-    return processed_patch
+    return processed_patch, pred_mask_np
+
+def fuse_patches(patches, original_image_size, patch_size):
+    if len(patches) == 0:
+        return None
+    H, W = original_image_size
+    actual_ph, actual_pw = patches[0].shape[:2]
+    channels = patches[0].shape[2] if len(patches[0].shape) == 3 else 1
+    if channels == 1:
+        fused_image = np.zeros((H, W), dtype=patches[0].dtype)
+    else:
+        fused_image = np.zeros((H, W, channels), dtype=patches[0].dtype)
+    patch_rows = math.ceil(H / actual_ph)
+    patch_cols = math.ceil(W / actual_pw)
+    
+    for i in range(patch_rows):
+        for j in range(patch_cols):
+            idx = i * patch_cols + j
+            if idx >= len(patches):
+                continue
+            y_start = i * actual_ph
+            y_end = min((i + 1) * actual_ph, H)
+            x_start = j * actual_pw
+            x_end = min((j + 1) * actual_pw, W)
+            fused_image[y_start:y_end, x_start:x_end] = patches[idx]
+    return fused_image
 
 def process_frame(frame: Frame, model=None):
     # Extract sidewalk mask
@@ -140,6 +184,7 @@ def process_frame(frame: Frame, model=None):
         print("No valid sidewalk depth found in any contour.")
         return None
     print(f"Main Sidewalk Contour to be used: {index} {contour.shape}, Area: {cv2.contourArea(contour)}")
+    final_contour_mask = postprocess_contour_mask(contour_mask, depth_image) # For eventual post-processing
     color_masked_image = cv2.bitwise_and(frame.color_image, frame.color_image, mask=contour_mask)
     
     # For the sidewalk patch, get the 3D points using the contour mask, depth image, intrinsics and pose
@@ -163,7 +208,7 @@ def process_frame(frame: Frame, model=None):
     print(f"Fitted Plane Equation: {best_eq}, Inliers: {len(best_inliers)}, Slope: {slope:.2f} degrees")
     
     # Warp the sidewalk patch to get a bird's eye view
-    warped_image = warp_image_to_birds_eye_view(color_masked_image, points_3d[best_inliers], frame.intrinsics, frame.pose_matrix, best_eq, s=0.01)
+    warped_image, H_bi = warp_image_to_birds_eye_view(color_masked_image, points_3d[best_inliers], frame.intrinsics, frame.pose_matrix, best_eq, s=0.01)
     cv2.imwrite(os.path.join(OUTPUT_PATH, "warped_sidewalk.png"), warped_image)
     
     # Divide the image into 256x256 patches
@@ -178,10 +223,34 @@ def process_frame(frame: Frame, model=None):
         return color_masked_image
     print("Running model predictions on patches...")
     processed_patches = []
+    patch_pred_masks = []
     for i, patch in enumerate(patches):
-        processed_patch = process_patch(patch, model)
+        processed_patch, pred_mask = process_patch(patch, model)
         processed_patches.append(processed_patch)
-        cv2.imwrite(os.path.join(OUTPUT_PATH, f"patch_{i:03d}_prediction.png"), processed_patch)
+        patch_pred_masks.append(pred_mask)
+    
+    print("Fusing patches back to full image...")
+    fused_image = fuse_patches(processed_patches, warped_image.shape[:2], patch_size=(256, 256))
+    fused_pred_mask = fuse_patches(patch_pred_masks, warped_image.shape[:2], patch_size=(256, 256))
+    if fused_image is None:
+        print("No patches to fuse.")
+        return color_masked_image
+    
+    cv2.imwrite(os.path.join(OUTPUT_PATH, "warped_fused_output.png"), fused_image)
+    cv2.imwrite(os.path.join(OUTPUT_PATH, "warped_fused_pred_mask.png"), fused_pred_mask)
+    
+    # Warp back the fused image to the original view
+    H_ib = np.linalg.inv(H_bi)
+    W_color, H_color = frame.color_image.shape[1], frame.color_image.shape[0]
+    unwarped_image = cv2.warpPerspective(fused_image, H_ib, (W_color, H_color), flags=cv2.INTER_LINEAR,
+                                        borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
+    unwarped_image = cv2.bitwise_and(unwarped_image, unwarped_image, mask=final_contour_mask)
+    cv2.imwrite(os.path.join(OUTPUT_PATH, "fused_output.png"), unwarped_image)
+
+    unwarped_pred_mask = cv2.warpPerspective(fused_pred_mask, H_ib, (W_color, H_color), flags=cv2.INTER_NEAREST,
+                                        borderMode=cv2.BORDER_CONSTANT, borderValue=(0))
+    unwarped_pred_mask = cv2.bitwise_and(unwarped_pred_mask, unwarped_pred_mask, mask=final_contour_mask)
+    cv2.imwrite(os.path.join(OUTPUT_PATH, "fused_pred_mask.png"), unwarped_pred_mask)
 
     return color_masked_image
 
