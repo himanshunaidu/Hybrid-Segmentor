@@ -103,15 +103,15 @@ def invert_transform(T_wc):
     T_cw[:3, 3] = t_cw
     return T_cw
 
-def plane_basis(normal):
+def plane_basis(normal: np.ndarray):
     """
     Given a normal vector, compute two orthogonal basis vectors on the plane defined by the normal.
     """
     a = np.array([1.0, 0.0, 0.0])
     if np.allclose(normal, a):
         a = np.array([0.0, 1.0, 0.0])
-    u_w = normalize(a - np.dot(a, normal) * normal)
-    v_w = normalize(np.cross(normal, u_w))
+    u_w: np.ndarray = normalize(a - np.dot(a, normal) * normal)
+    v_w: np.ndarray = normalize(np.cross(normal, u_w))
     return u_w, v_w
 
 def homography_plane_to_image(intrinsics, T_wc, origin, normal):
@@ -133,7 +133,8 @@ def homography_plane_to_image(intrinsics, T_wc, origin, normal):
     H_ip = intrinsics @ H_cp  # (3,3) # plane to image
     return H_ip, u_w, v_w
 
-def _warp_image(image, intrinsics, T_wc, origin, normal, W_m, H_m, s=0.001):
+def _warp_image(image, intrinsics, T_wc, origin, normal, W_m, H_m, s=0.01, *,
+                cx_p=None, cy_p=None, s_x=None, s_y=None):
     """
     Warps the input image to a bird's eye view of the plane defined by (origin, normal).
     
@@ -160,12 +161,15 @@ def _warp_image(image, intrinsics, T_wc, origin, normal, W_m, H_m, s=0.001):
     # Let's map pixel (i,j) to plane coords:
     #   U = (i - cx_p) * s, V = (j - cy_p) * s
     # Center the patch around p0 by default:
-    cx_p, cy_p = W_px / 2, H_px / 2
-    
+    if s_x is None: s_x = s
+    if s_y is None: s_y = s
+    if cx_p is None or cy_p is None:
+        cx_p, cy_p = (W_px / 2 * s_x), (H_px / 2 * s_y)
+
     # Create a 3x3 homography matrix to map bird's eye view pixel coords to plane coords
     H_pb = np.array([
-        [s, 0, -cx_p * s],
-        [0, s, -cy_p * s],
+        [s_x, 0, cx_p],
+        [0, s_y, cy_p],
         [0, 0, 1]
     ], dtype=np.float64)
     
@@ -177,7 +181,7 @@ def _warp_image(image, intrinsics, T_wc, origin, normal, W_m, H_m, s=0.001):
                                         borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
     return warped_image, (u_w, v_w), (W_px, H_px)
 
-def warp_image_to_birds_eye_view(image, points, intrinsics, T_wc, plane_eq, s=0.001):
+def warp_image_to_birds_eye_view(image, points, intrinsics, T_wc, plane_eq, s=0.01):
     """
     Warps the input image to a bird's eye view of the plane defined by the plane equation.
     
@@ -203,13 +207,17 @@ def warp_image_to_birds_eye_view(image, points, intrinsics, T_wc, plane_eq, s=0.
     
     W_m = max_u - min_u
     H_m = max_v - min_v
+    print(f"Sidewalk Patch Size: {W_m:.2f}m x {H_m:.2f}m")
     
     # Add some padding
-    padding = 0.1 * max(W_m, H_m)
+    padding = 0.01 * max(W_m, H_m)
     W_m += 2 * padding
     H_m += 2 * padding
     
-    warped_image, (u_w, v_w), (W_px, H_px) = _warp_image(image, intrinsics, T_wc, origin, normal, W_m, H_m, s)
+    warped_image, (u_w, v_w), (W_px, H_px) = _warp_image(
+        image, intrinsics, T_wc, origin, normal, W_m, H_m, s,
+        s_x=s, s_y=-s, cx_p=min_u-padding, cy_p=max_v+padding
+    )
     
     return warped_image
     
@@ -261,12 +269,15 @@ def process_frame(frame: Frame):
     best_eq, best_inliers = plane.fit(points_3d, thresh=0.1, maxIteration=1000)
     a, b, c, d = best_eq
     normal_vector = np.array([a, b, c])
-    print(f"Fitted Plane Equation: {a}x + {b}y + {c}z + {d} = 0")
-    print(f"Normal Vector: {normal_vector}, Number of Inliers: {len(best_inliers)}")
-    print(f"Slope (degrees): {np.degrees(np.arccos(normalize(normal_vector) @ np.array([0,1,0])))}")
+    slope = np.degrees(np.arccos(normalize(normal_vector) @ np.array([0,1,0])))
+    if slope > 90:
+        best_eq = [-a, -b, -c, -d]
+        normal_vector = -normal_vector
+        slope = 180 - slope
+    print(f"Fitted Plane Equation: {best_eq}, Inliers: {len(best_inliers)}, Slope: {slope:.2f} degrees")
     
     # Warp the sidewalk patch to get a bird's eye view
-    warped_image = warp_image_to_birds_eye_view(color_masked_image, points_3d[best_inliers], frame.intrinsics, frame.pose_matrix, best_eq, s=0.001)
+    warped_image = warp_image_to_birds_eye_view(color_masked_image, points_3d[best_inliers], frame.intrinsics, frame.pose_matrix, best_eq, s=0.01)
     cv2.imwrite("warped_sidewalk.png", warped_image)
 
     return color_masked_image
