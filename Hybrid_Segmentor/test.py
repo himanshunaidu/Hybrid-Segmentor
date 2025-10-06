@@ -2,24 +2,25 @@ import torch
 import os
 from model import HybridSegmentor
 from utils import save_predictions_as_imgs, eval_metrics, eval_ODS, eval_OIS
-from dataloader import get_loaders
+from dataloader import get_loaders, get_loader
 import config
 
 
 def main():
-    trian_loader, val_loader_loader, test_loader = get_loaders(
-        config.TRAIN_IMG_DIR,
-        config.TRAIN_MASK_DIR,
-        config.VAL_IMG_DIR,
-        config.VAL_MASK_DIR,
-        config.TEST_IMG_DIR,
-        config.TEST_MASK_DIR,
-        1,
-        config.NUM_WORKERS,
-        config.PIN_MEMORY,
-    )
+    # trian_loader, val_loader_loader, test_loader = get_loaders(
+    #     config.TRAIN_IMG_DIR,
+    #     config.TRAIN_MASK_DIR,
+    #     config.VAL_IMG_DIR,
+    #     config.VAL_MASK_DIR,
+    #     config.TEST_IMG_DIR,
+    #     config.TEST_MASK_DIR,
+    #     1,
+    #     config.NUM_WORKERS,
+    #     config.PIN_MEMORY,
+    # )
     
-    dataloaders = {'train': trian_loader, 'val': val_loader_loader, 'test': test_loader}
+    
+    # dataloaders = {'train': trian_loader, 'val': val_loader_loader, 'test': test_loader}
     model = HybridSegmentor().to(config.DEVICE)
 
     print('Loading Model')
@@ -30,6 +31,20 @@ def main():
     model.load_state_dict(checkpoint['state_dict'])
     mul_outputs = True
     mode = 'test'
+    
+    # Data Loader
+    if mode == 'train':
+        dir = config.TRAIN_IMG_DIR
+        maskdir = config.TRAIN_MASK_DIR
+    elif mode == 'val':
+        dir = config.VAL_IMG_DIR
+        maskdir = config.VAL_MASK_DIR
+    elif mode == 'test':
+        dir = config.TEST_IMG_DIR
+        maskdir = config.TEST_MASK_DIR
+    else:
+        raise Exception("mode should be train/val/test")
+    dataloaders = {mode: get_loader(dir, maskdir, dir, 1, config.NUM_WORKERS, config.PIN_MEMORY)}
 
 
     # print()

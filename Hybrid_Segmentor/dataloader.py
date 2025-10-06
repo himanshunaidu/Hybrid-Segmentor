@@ -47,3 +47,9 @@ def get_loaders(train_dir, train_maskdir, val_dir, val_maskdir, test_dir, test_m
     test_loader = DataLoader(test_ds,batch_size=batch_size,pin_memory=pin_memory,shuffle=False, num_workers=4)
 
     return train_loader, val_loader, test_loader
+
+def get_loader(dir, maskdir, val_dir, batch_size, num_workers=4, pin_memory=True,):
+    ds = CrackDataset(image_dir=dir,mask_dir=maskdir,transform=train_transform,)
+    loader = DataLoader(ds,batch_size=batch_size,pin_memory=pin_memory,shuffle=False, num_workers=4)
+
+    return loader

@@ -4,7 +4,8 @@ import os
 ### train on total dataset
 NUM_EPOCHS = 1000
 DATASET_SIZE = {'train' : 9600, 'val' : 1200, 'test' : 1200}
-dataset = os.path.join('../', 'data/', 'split_dataset_final/')
+# dataset = os.path.join('../', 'data/', 'split_dataset_final/')
+dataset = os.path.join('../', 'data/', 'patches/')
 
 ### train on sample dataset
 # NUM_EPOCHS = 1
