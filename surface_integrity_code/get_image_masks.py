@@ -21,11 +21,13 @@ from tqdm import tqdm
 from PIL import Image
 import pyransac3d as pyrsc
 import open3d as o3d
+import math
 
 from read_utils import Frame
 from read_utils import get_rgb, get_depth, get_mask, get_depth_confidence, get_intrinsics, get_pose_matrix
 
-DATASET_PATH = os.path.join("../", "data/", "iOSPointMapper_1_Cityscapes_2")
+DATASET_PATH = os.path.join("..", "data", "iOSPointMapper_1_Cityscapes_2")
+OUTPUT_PATH = "output"
 
 DATASET_CSV_PATH = os.path.join(DATASET_PATH, "dataset.csv")
 
@@ -181,6 +183,38 @@ def _warp_image(image, intrinsics, T_wc, origin, normal, W_m, H_m, s=0.01, *,
                                         borderMode=cv2.BORDER_CONSTANT, borderValue=(0,0,0))
     return warped_image, (u_w, v_w), (W_px, H_px)
 
+def divide_image(image, patch_size=(256, 256)):
+    """
+    Divides the input image into smaller patches of given size.
+    
+    Args:
+        image: Input image (H, W, 3)
+        patch_size: Tuple of (height, width) for each patch
+    """
+    H, W = image.shape[:2]
+    ph, pw = patch_size
+    patches = []
+    patch_rows = math.ceil(H / ph)
+    patch_cols = math.ceil(W / pw)
+    actual_ph, actual_pw = H // patch_rows, W // patch_cols
+
+    print(f"Dividing image of size {W}x{H} into {patch_cols}x{patch_rows} patches of size {pw}x{ph}")
+    for i in range(patch_rows):
+        for j in range(patch_cols):
+            y_start = i * actual_ph
+            y_end = min((i + 1) * actual_ph, H)
+            x_start = j * actual_pw
+            x_end = min((j + 1) * actual_pw, W)
+
+            patch = image[y_start:y_end, x_start:x_end]
+            patches.append(patch)
+    # Resize patches to exact patch_size if needed
+    resized_patches = []
+    for patch in patches:
+        resized_patch = cv2.resize(patch, (pw, ph), interpolation=cv2.INTER_LINEAR)
+        resized_patches.append(resized_patch)
+    return resized_patches
+
 def warp_image_to_birds_eye_view(image, points, intrinsics, T_wc, plane_eq, s=0.01):
     """
     Warps the input image to a bird's eye view of the plane defined by the plane equation.
@@ -259,8 +293,8 @@ def process_frame(frame: Frame):
     # For the sidewalk patch, get the 3D points using the contour mask, depth image, intrinsics and pose
     # Also get the colors of the 3D points
     points_3d, colors_3d = get_3d_points(frame.color_image, contour_mask, depth_image, frame.intrinsics, frame.pose_matrix)
-    save_3d_points_to_ply(points_3d, colors_3d, "sidewalk_point_cloud.ply")
-    
+    save_3d_points_to_ply(points_3d, colors_3d, os.path.join(OUTPUT_PATH, "sidewalk_point_cloud.ply"))
+
     if len(points_3d) < 50:
         print("Not enough 3D points to fit a plane.")
         return color_masked_image
@@ -278,7 +312,13 @@ def process_frame(frame: Frame):
     
     # Warp the sidewalk patch to get a bird's eye view
     warped_image = warp_image_to_birds_eye_view(color_masked_image, points_3d[best_inliers], frame.intrinsics, frame.pose_matrix, best_eq, s=0.01)
-    cv2.imwrite("warped_sidewalk.png", warped_image)
+    cv2.imwrite(os.path.join(OUTPUT_PATH, "warped_sidewalk.png"), warped_image)
+    
+    # Divide the image into 256x256 patches
+    patches = divide_image(warped_image, patch_size=(256, 256))
+    print(f"Divided into {len(patches)} patches of size 256x256")
+    for idx, patch in enumerate(patches):
+        cv2.imwrite(os.path.join(OUTPUT_PATH, f"warped_patch_{idx:03d}.png"), patch)
 
     return color_masked_image
 
@@ -290,6 +330,6 @@ if __name__=="__main__":
         frame = load_frame(row)
 
         processed_image = process_frame(frame)
-        if processed_image is not None: cv2.imwrite(f"output_frame_{idx:04d}.png", processed_image)
+        if processed_image is not None: cv2.imwrite(os.path.join(OUTPUT_PATH, f"output_frame_{idx:04d}.png"), processed_image)
 
         break
