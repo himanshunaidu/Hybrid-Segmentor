@@ -161,7 +161,7 @@ def warp_image_to_birds_eye_view(image, points, intrinsics, T_wc, plane_eq, s=0.
     print(f"Sidewalk Patch Size: {W_m:.2f}m x {H_m:.2f}m")
     
     # Add some padding
-    padding = 0.01 * max(W_m, H_m)
+    padding = 0#0.01 * max(W_m, H_m)
     W_m += 2 * padding
     H_m += 2 * padding
     

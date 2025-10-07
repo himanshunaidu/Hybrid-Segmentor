@@ -11,6 +11,8 @@ Procedure:
         may be seen as an additional crack
     )
     (Optionally: Divide the rectangular patch into smaller patches because the ML model uses 256x256 patches)
+    
+NOTE: This script filters out far away points before the contour detection step.
 """
 import os
 import cv2
@@ -161,14 +163,18 @@ def process_frame(frame: Frame, model=None):
 
     # Extract sidewalk mask
     sidewalk_mask = (frame.mask_image == SIDEWALK_MASK_VALUE).astype(np.uint8)
+    
+    # Filter out far away points before contour detection
+    depth_image = cv2.resize(frame.depth_image, (frame.color_image.shape[1], frame.color_image.shape[0]), interpolation=cv2.INTER_LANCZOS4)
+    depth_mask = (depth_image > 0) & (depth_image < DEPTH_THRESHOLD)
+    sidewalk_mask = sidewalk_mask & depth_mask.astype(np.uint8)
 
     # Find contours of the sidewalk mask
     contours, _ = cv2.findContours(sidewalk_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     largest_contours = sorted(contours, key=cv2.contourArea, reverse=True)
     
-    depth_image = cv2.resize(frame.depth_image, (frame.color_image.shape[1], frame.color_image.shape[0]), interpolation=cv2.INTER_LANCZOS4)
-    
     # Create a mask out of the biggest contour
+    sidewalk_in_range = []
     for index, contour in enumerate(largest_contours):
         contour_mask = np.zeros_like(frame.mask_image)
         cv2.drawContours(contour_mask, [contour], -1, (255), thickness=cv2.FILLED)
@@ -214,7 +220,7 @@ def process_frame(frame: Frame, model=None):
     print(f"Fitted Plane Equation: {best_eq}, Inliers: {len(best_inliers)}, Slope: {slope:.2f} degrees")
     
     # Warp the sidewalk patch to get a bird's eye view
-    warped_image, H_bi = warp_image_to_birds_eye_view(color_masked_image, points_3d[best_inliers], frame.intrinsics, frame.pose_matrix, best_eq, s=0.01)
+    warped_image, H_bi = warp_image_to_birds_eye_view(color_masked_image, points_3d[best_inliers], frame.intrinsics, frame.pose_matrix, best_eq, s=0.001)
     cv2.imwrite(os.path.join(OUTPUT_PATH, f"{frame.name}_warped_sidewalk.png"), warped_image)
 
     # Divide the image into 256x256 patches
@@ -271,5 +277,3 @@ if __name__=="__main__":
         frame = load_frame(row)
 
         processed_image = process_frame(frame, model=model)
-        
-        break

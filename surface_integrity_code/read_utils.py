@@ -34,12 +34,17 @@ DATASET_CSV_COLUMNS = [
 ]
 
 class Frame:
-    def __init__(self, color_image, depth_image, mask_image, intrinsics, pose_matrix):
+    def __init__(self, color_image, depth_image, mask_image, intrinsics, pose_matrix, *, name: str):
         self.color_image = color_image
         self.depth_image = depth_image
         self.mask_image = mask_image
         self.intrinsics = intrinsics
         self.pose_matrix = pose_matrix
+        self.name = name
+
+def get_name(data: pd.Series) -> str:
+    """Extracts a name identifier from a DataFrame row."""
+    return os.path.splitext(os.path.basename(data['rgb_frame_path']))[0].replace('_leftImg8bit', '')
 
 def get_rgb(data: pd.Series, dataset_path: str, *, 
             width: int = -1, height: int = -1, rotation_code: int = -1) -> np.ndarray:
